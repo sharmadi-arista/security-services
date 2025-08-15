@@ -1,0 +1,4 @@
+# Definition of code OWNERS for the openconfig/security-services repository.
+#
+# default approvers:
+* @openconfig/security-services-approvers
