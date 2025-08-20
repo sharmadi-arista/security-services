@@ -9,18 +9,21 @@ import (
 	log "k8s.io/klog"
 )
 
-func ConvertToGoogleSPDX(bom *cdx.BOM) (string, error) {
-	spdxDoc := spdx.Document{}
-	spdxDoc.DocumentName = bom.Metadata.Component.Name
+func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
+	spdxDoc := spdx.Document{
+		DocumentName: bom.Metadata.Component.Name,
+		SPDXVersion:  spdx.Version,
+	}
+
 	refMap := map[string]cdx.Component{}
 	typeMap := map[string]int{}
 	for _, c := range *bom.Components {
 		if _, ok := refMap[c.BOMRef]; ok {
-			return "", fmt.Errorf("duplicate BOM ref: %q", c.BOMRef)
+			return nil, fmt.Errorf("duplicate BOM ref: %q", c.BOMRef)
 		}
+		refMap[c.BOMRef] = c
 		typeMap[string(c.Type)] += 1
 		if c.Type == "library" {
-			refMap[c.BOMRef] = c
 			p := &spdx.Package{
 				PackageName:        c.Name,
 				PackageVersion:     c.Version,
@@ -44,7 +47,7 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (string, error) {
 				validIdentifier = true
 			}
 			if !validIdentifier {
-				log.Warningf("package %q missing PURL and CPE", c.Name)
+				log.Warningf("package %q:%q:%q missing PURL and CPE", c.Name, c.Type, c.MIMEType)
 			}
 			spdxDoc.Packages = append(spdxDoc.Packages, p)
 		}
@@ -94,18 +97,18 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (string, error) {
 		for _, depRef := range *rm.Dependencies {
 			r, ok := refMap[depRef]
 			if !ok {
-				log.Warningf("missing component ref: %q", rm.Ref)
+				log.V(1).Infof("missing dep component ref: %q", rm.Ref)
 			}
 			deps = append(deps, r.Name)
 		}
 		log.V(1).Infof("%q: %q", c.Name, deps)
 	}
 	log.Infof("SBOM map ref errs: %d", refErrs)
-	b, err := json.MarshalIndent(spdxDoc, "", "  ")
-	if err != nil {
-		return "", err
-	}
 	log.Infof("TypeMap: %+v", typeMap)
 	log.Infof("CompMap: %+v", compTypeMap)
-	return string(b), nil
+	return &spdxDoc, nil
+}
+
+func SPDXToJSON(spdxDoc *spdx.Document) ([]byte, error) {
+	return json.MarshalIndent(spdxDoc, "", " ")
 }

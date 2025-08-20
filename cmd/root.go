@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/google/sbom-conformance/pkg/checkers/base"
 	"github.com/openconfig/security-services/cmd/sbom"
 	"github.com/spf13/cobra"
 
@@ -51,11 +52,12 @@ func newShowCmd() *cobra.Command {
 
 func newConvertCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "convert <SBOM file name>",
-		Short: "convert <SBOM file name>",
+		Use:   "convert <input SBOM file name> <output SPDX filename",
+		Short: "convert <input SBOM file name> <output SPDX filename>",
 		RunE:  convertSBOM,
 	}
 	cmd.Flags().String("format", "cyclonedx-v16-proto", "Format of the SBOM")
+	cmd.Flags().Bool("validate", false, "Provide sbom conformance validation")
 	return cmd
 }
 
@@ -101,7 +103,6 @@ func loadCycloneDXJSON(filename string) (*cdx.BOM, error) {
 	if err := d.Decode(bom); err != nil {
 		return nil, err
 	}
-	fmt.Println(bom)
 	return bom, nil
 }
 
@@ -110,10 +111,15 @@ func printCycloneDX(sbom *cdx.BOM) ([]byte, error) {
 }
 
 func convertSBOM(cmd *cobra.Command, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("SBOM arg required")
+	if len(args) != 2 {
+		return fmt.Errorf("SBOM input and output arg required")
 	}
 	sbomFileName := args[0]
+	spdxFileName := args[1]
+	validate, err := cmd.Flags().GetBool("validate")
+	if err != nil {
+		return err
+	}
 	format, err := cmd.Flags().GetString("format")
 	if err != nil {
 		return err
@@ -126,13 +132,31 @@ func convertSBOM(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		s, err := sbom.ConvertToGoogleSPDX(bom)
+		spdxDoc, err := sbom.ConvertToGoogleSPDX(bom)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "SPDX:\n%s\n", s)
-		return nil
 
+		b, err := sbom.SPDXToJSON(spdxDoc)
+		if err != nil {
+			return err
+		}
+		if validate {
+			checker, err := base.NewChecker(base.WithEOChecker(), base.WithSPDXChecker())
+			if err != nil {
+				return err
+			}
+			checker.SetSBOM(bytes.NewBuffer(b))
+			checker.RunChecks()
+			results := checker.Results()
+			fmt.Fprintf(cmd.OutOrStdout(), "Conformance Results:\n")
+			fmt.Fprintln(cmd.OutOrStdout(), results.TextSummary)
+		}
+		if err := os.WriteFile(spdxFileName, b, 0600); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Wrote output to %q", spdxFileName)
+		return nil
 	case "spdx-v23-json":
 		return fmt.Errorf("unimplemented format: spdx-v23-json")
 	}
