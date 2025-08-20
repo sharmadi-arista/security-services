@@ -155,7 +155,7 @@ func convertSBOM(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(spdxFileName, b, 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Wrote output to %q", spdxFileName)
+		fmt.Fprintf(cmd.OutOrStdout(), "Wrote output to %q\n", spdxFileName)
 		return nil
 	case "spdx-v23-json":
 		return fmt.Errorf("unimplemented format: spdx-v23-json")

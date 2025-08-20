@@ -6,13 +6,25 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/spdx/tools-golang/spdx"
+	"github.com/spdx/tools-golang/spdx/v2/common"
+	"github.com/spdx/tools-golang/spdx/v2/v2_3"
 	log "k8s.io/klog"
 )
 
 func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 	spdxDoc := spdx.Document{
-		DocumentName: bom.Metadata.Component.Name,
-		SPDXVersion:  spdx.Version,
+		DocumentName:      bom.Metadata.Component.Name,
+		DocumentNamespace: "", // This needs to be a PURL?
+		SPDXVersion:       spdx.Version,
+		DataLicense:       "CC0-1.0",
+		CreationInfo: &v2_3.CreationInfo{
+			Created: bom.Metadata.Timestamp,
+			Creators: []common.Creator{{
+				Creator:     bom.Metadata.Component.Supplier.Name,
+				CreatorType: "Organization",
+			}},
+		},
+		SPDXIdentifier: "SPDXRef-DOCUMENT",
 	}
 
 	refMap := map[string]cdx.Component{}
