@@ -5,7 +5,7 @@ import (
 	"flag"
 	"os"
 
-	"github.com/openconfig/security-services/cmd"
+	"github.com/openconfig/security-services/cli/cmd"
 	"github.com/spf13/pflag"
 	"k8s.io/klog"
 )

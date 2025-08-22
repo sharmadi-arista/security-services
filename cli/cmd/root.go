@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/google/sbom-conformance/pkg/checkers/base"
-	"github.com/openconfig/security-services/cmd/sbom"
+	"github.com/openconfig/security-services/cli/cmd/sbom"
 	"github.com/spf13/cobra"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
