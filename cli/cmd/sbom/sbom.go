@@ -29,39 +29,23 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 
 	refMap := map[string]cdx.Component{}
 	typeMap := map[string]int{}
-	for _, c := range *bom.Components {
-		if _, ok := refMap[c.BOMRef]; ok {
-			return nil, fmt.Errorf("duplicate BOM ref: %q", c.BOMRef)
+
+	if bom.Metadata != nil && bom.Metadata.Component != nil {
+		if err := AddCycloneDXComponent(
+			*bom.Metadata.Component,
+			refMap,
+			typeMap,
+			&spdxDoc,
+		); err != nil {
+			return nil, fmt.Errorf("failed to add metadata component: %w", err)
 		}
-		refMap[c.BOMRef] = c
-		typeMap[string(c.Type)] += 1
-		if c.Type == "library" {
-			p := &spdx.Package{
-				PackageName:        c.Name,
-				PackageVersion:     c.Version,
-				PackageDescription: c.Description,
+	}
+
+	if bom.Components != nil {
+		for _, component := range *bom.Components {
+			if err := AddCycloneDXComponent(component, refMap, typeMap, &spdxDoc); err != nil {
+				return nil, fmt.Errorf("failed to add component %q: %w", component.BOMRef, err)
 			}
-			validIdentifier := false
-			if c.PackageURL != "" {
-				p.PackageExternalReferences = append(p.PackageExternalReferences, &spdx.PackageExternalReference{
-					Category: "SECURITY",
-					Locator:  c.PackageURL,
-					RefType:  "purl",
-				})
-				validIdentifier = true
-			}
-			if c.CPE != "" {
-				p.PackageExternalReferences = append(p.PackageExternalReferences, &spdx.PackageExternalReference{
-					Category: "SECURITY",
-					Locator:  c.CPE,
-					RefType:  "cpe22Type",
-				})
-				validIdentifier = true
-			}
-			if !validIdentifier {
-				log.Warningf("package %q:%q:%q missing PURL and CPE", c.Name, c.Type, c.MIMEType)
-			}
-			spdxDoc.Packages = append(spdxDoc.Packages, p)
 		}
 	}
 
@@ -123,4 +107,69 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 
 func SPDXToJSON(spdxDoc *spdx.Document) ([]byte, error) {
 	return json.MarshalIndent(spdxDoc, "", " ")
+}
+
+func AddCycloneDXComponent(
+	c cdx.Component,
+	refMap map[string]cdx.Component,
+	typeMap map[string]int,
+	spdxDoc *spdx.Document,
+) error {
+	if _, ok := refMap[c.BOMRef]; ok {
+		return fmt.Errorf("duplicate BOM ref: %q", c.BOMRef)
+	}
+
+	refMap[c.BOMRef] = c
+	typeMap[string(c.Type)] += 1
+
+	if IsComponentSPDXPackage(c) {
+		p := &spdx.Package{
+			PackageName:        c.Name,
+			PackageVersion:     c.Version,
+			PackageDescription: c.Description,
+		}
+		validIdentifier := false
+		if c.PackageURL != "" {
+			p.PackageExternalReferences = append(p.PackageExternalReferences, &spdx.PackageExternalReference{
+				Category: "SECURITY",
+				Locator:  c.PackageURL,
+				RefType:  "purl",
+			})
+			validIdentifier = true
+		}
+		if c.CPE != "" {
+			p.PackageExternalReferences = append(p.PackageExternalReferences, &spdx.PackageExternalReference{
+				Category: "SECURITY",
+				Locator:  c.CPE,
+				RefType:  "cpe22Type",
+			})
+			validIdentifier = true
+		}
+		if !validIdentifier {
+			log.Warningf("package %q:%q:%q missing PURL and CPE", c.Name, c.Type, c.MIMEType)
+		}
+		spdxDoc.Packages = append(spdxDoc.Packages, p)
+	}
+
+	// Add nested components.
+	if c.Components != nil {
+		for _, subComponent := range *c.Components {
+			err := AddCycloneDXComponent(subComponent, refMap, typeMap, spdxDoc)
+			if err != nil {
+				return fmt.Errorf("failed to add sub-component %q: %w", subComponent.BOMRef, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func IsComponentSPDXPackage(component cdx.Component) bool {
+	// Keeping it as switch, as we might need to add more cdx component types.
+	switch component.Type {
+	case cdx.ComponentTypeLibrary:
+		return true
+	default:
+		return false
+	}
 }
