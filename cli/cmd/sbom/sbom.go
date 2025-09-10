@@ -24,7 +24,7 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 				CreatorType: "Organization",
 			}},
 		},
-		SPDXIdentifier: "SPDXRef-DOCUMENT",
+		SPDXIdentifier: toSPDXElementID("DOCUMENT"),
 	}
 
 	refMap := map[string]cdx.Component{}
@@ -124,9 +124,10 @@ func AddCycloneDXComponent(
 
 	if IsComponentSPDXPackage(c) {
 		p := &spdx.Package{
-			PackageName:        c.Name,
-			PackageVersion:     c.Version,
-			PackageDescription: c.Description,
+			PackageSPDXIdentifier: toSPDXElementID(c.BOMRef),
+			PackageName:           c.Name,
+			PackageVersion:        c.Version,
+			PackageDescription:    c.Description,
 		}
 		validIdentifier := false
 		if c.PackageURL != "" {
@@ -148,6 +149,27 @@ func AddCycloneDXComponent(
 		if !validIdentifier {
 			log.Warningf("package %q:%q:%q missing PURL and CPE", c.Name, c.Type, c.MIMEType)
 		}
+
+		// Add supplier information.
+		if c.Supplier != nil {
+			p.PackageSupplier = &common.Supplier{
+				Supplier:     c.Supplier.Name,
+				SupplierType: "NOASSERTION",
+			}
+		}
+
+		// Add package download location.
+		if c.ExternalReferences != nil {
+			for _, eRef := range *c.ExternalReferences {
+				if eRef.Type == cdx.ERTypeDistribution {
+					p.PackageDownloadLocation = eRef.URL
+				}
+			}
+		}
+		if p.PackageDownloadLocation == "" {
+			p.PackageDownloadLocation = "NOASSERTION"
+		}
+
 		spdxDoc.Packages = append(spdxDoc.Packages, p)
 	}
 
@@ -158,10 +180,28 @@ func AddCycloneDXComponent(
 			if err != nil {
 				return fmt.Errorf("failed to add sub-component %q: %w", subComponent.BOMRef, err)
 			}
+			// Add contained components with SPDX "CONTAINS" relationships.
+			spdxDoc.Relationships = append(spdxDoc.Relationships, &v2_3.Relationship{
+				RefA:         toSPDXDocElementID(c.BOMRef),
+				RefB:         toSPDXDocElementID(subComponent.BOMRef),
+				Relationship: "CONTAINS",
+			})
 		}
 	}
 
 	return nil
+}
+
+// ========== Helper methods =============
+
+func toSPDXDocElementID(bomRef string) common.DocElementID {
+	return common.DocElementID{
+		ElementRefID: toSPDXElementID(bomRef),
+	}
+}
+
+func toSPDXElementID(bomRef string) common.ElementID {
+	return common.ElementID(fmt.Sprintf("SPDXRef-%s", bomRef))
 }
 
 func IsComponentSPDXPackage(component cdx.Component) bool {

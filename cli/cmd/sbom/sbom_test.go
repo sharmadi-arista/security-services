@@ -126,4 +126,126 @@ func TestAddCycloneDXComponents(t *testing.T) {
 			t.Errorf("Expected 2 external references, got %d", len(pkg.PackageExternalReferences))
 		}
 	})
+
+	t.Run("Test component with supplier information", func(t *testing.T) {
+		refMap := make(map[string]cdx.Component)
+		typeMap := make(map[string]int)
+		spdxDoc := &spdx.Document{}
+
+		emptyComponents := &[]cdx.Component{}
+		component := cdx.Component{
+			BOMRef: "test-ref",
+			Type:   cdx.ComponentTypeLibrary,
+			Name:   "test-component",
+			Supplier: &cdx.OrganizationalEntity{
+				Name: "test-supplier",
+			},
+			Components: emptyComponents,
+		}
+
+		err := AddCycloneDXComponent(component, refMap, typeMap, spdxDoc)
+
+		if err != nil {
+			t.Errorf("AddCycloneDXComponents() error = %v, want nil", err)
+		}
+
+		if len(spdxDoc.Packages) != 1 {
+			t.Fatalf("Expected 1 package, got %d", len(spdxDoc.Packages))
+		}
+
+		// Check package supplier information.
+		pkg := spdxDoc.Packages[0]
+		if pkg.PackageSupplier == nil {
+			t.Fatalf("Package supplier must be set")
+		}
+
+		if pkg.PackageSupplier.Supplier != component.Supplier.Name {
+			t.Fatalf("Expected package supplier to be %q, got %q",
+				component.Supplier.Name, pkg.PackageSupplier.Supplier)
+		}
+
+		if pkg.PackageSupplier.SupplierType != "NOASSERTION" {
+			t.Fatalf("Expected package supplier type to be NOASSERTION, got %q",
+				pkg.PackageSupplier.SupplierType)
+		}
+	})
+
+	t.Run("Test component with download location", func(t *testing.T) {
+		refMap := make(map[string]cdx.Component)
+		typeMap := make(map[string]int)
+		spdxDoc := &spdx.Document{}
+		pkgDownloadLocation := "http://downlaodlink"
+		emptyComponents := &[]cdx.Component{}
+		component := cdx.Component{
+			BOMRef: "test-ref",
+			Type:   cdx.ComponentTypeLibrary,
+			Name:   "test-component",
+			ExternalReferences: &[]cdx.ExternalReference{
+				{
+					Type: cdx.ERTypeDistribution,
+					URL:  pkgDownloadLocation,
+				},
+			},
+			Components: emptyComponents,
+		}
+
+		err := AddCycloneDXComponent(component, refMap, typeMap, spdxDoc)
+
+		if err != nil {
+			t.Errorf("AddCycloneDXComponents() error = %v, want nil", err)
+		}
+
+		// Check package download location.
+		pkg := spdxDoc.Packages[0]
+		if pkg.PackageDownloadLocation != pkgDownloadLocation {
+			t.Fatalf("Expected package download location to be %s, got %s",
+				pkgDownloadLocation, pkg.PackageDownloadLocation)
+		}
+	})
+
+	t.Run("Test component with contain relationships", func(t *testing.T) {
+		refMap := make(map[string]cdx.Component)
+		typeMap := make(map[string]int)
+		spdxDoc := &spdx.Document{}
+		refA := "test-refA"
+		refB := "test-refB"
+		component := cdx.Component{
+			BOMRef: refA,
+			Type:   cdx.ComponentTypeLibrary,
+			Name:   "test-componentA",
+			Components: &[]cdx.Component{
+				{
+					BOMRef: refB,
+					Type:   cdx.ComponentTypeLibrary,
+					Name:   "test-componentB",
+				},
+			},
+		}
+
+		err := AddCycloneDXComponent(component, refMap, typeMap, spdxDoc)
+		if err != nil {
+			t.Errorf("AddCycloneDXComponents() error = %v, want nil", err)
+		}
+
+		// Check contain relationship.
+		if len(spdxDoc.Packages) != 2 {
+			t.Fatalf("Expected 2 packages, got %d", len(spdxDoc.Packages))
+		}
+
+		relations := spdxDoc.Relationships
+		if len(relations) != 1 {
+			t.Fatalf("Expected 1 relationship, got %d", len(relations))
+		}
+
+		relation := relations[0]
+		if relation.Relationship != "CONTAINS" {
+			t.Fatalf("Expected relationship of type CONTAINS, got %q", relation.Relationship)
+		}
+		if relation.RefA != toSPDXDocElementID(refA) {
+			t.Fatalf("Expected relation.refA to be %q, got %q", toSPDXElementID(refA), relation.RefA)
+		}
+		if relation.RefB != toSPDXDocElementID(refB) {
+			t.Fatalf("Expected relation.refB to be %q, got %q", toSPDXElementID(refB), relation.RefB)
+		}
+	})
 }
