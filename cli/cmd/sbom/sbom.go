@@ -49,6 +49,16 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 		}
 	}
 
+	// Add CycloneDX dependencies to SPDX.
+	if bom.Dependencies != nil {
+		for _, deps := range *bom.Dependencies {
+			if err := AddCycloneDXDependencies(deps, refMap, &spdxDoc); err != nil {
+				return nil, fmt.Errorf("failed to add dependencies for ref %q: %w",
+					deps.Ref, err)
+			}
+		}
+	}
+
 	compTypeMap := map[string]int{}
 	assemblyDAG := map[string][]string{}
 	asmRefErr := 0
@@ -77,29 +87,7 @@ func ConvertToGoogleSPDX(bom *cdx.BOM) (*spdx.Document, error) {
 		}
 	}
 	log.Infof("Found %d Assembly ref errors", asmRefErr)
-	refErrs := 0
 	log.Infof("Loaded %d components from BOM", len(refMap))
-	log.Infof("building SBOM map")
-	for _, rm := range *bom.Dependencies {
-		c, ok := refMap[rm.Ref]
-		if !ok {
-			refErrs++
-			log.V(1).Infof("missing component ref: %q", rm.Ref)
-			continue
-			// return "", fmt.Errorf("missing component ref: %q", rm.Ref)
-		}
-		log.V(1).Infof("building deps for component %q", c.Name)
-		var deps []string
-		for _, depRef := range *rm.Dependencies {
-			r, ok := refMap[depRef]
-			if !ok {
-				log.V(1).Infof("missing dep component ref: %q", rm.Ref)
-			}
-			deps = append(deps, r.Name)
-		}
-		log.V(1).Infof("%q: %q", c.Name, deps)
-	}
-	log.Infof("SBOM map ref errs: %d", refErrs)
 	log.Infof("TypeMap: %+v", typeMap)
 	log.Infof("CompMap: %+v", compTypeMap)
 	return &spdxDoc, nil
@@ -187,6 +175,39 @@ func AddCycloneDXComponent(
 				Relationship: "CONTAINS",
 			})
 		}
+	}
+
+	return nil
+}
+
+// AddCycloneDXDependencies maps CycloneDX dependencies to SPDX "DEPENDS_ON" relationships.
+func AddCycloneDXDependencies(
+	dependency cdx.Dependency,
+	refMap map[string]cdx.Component,
+	spdxDoc *spdx.Document,
+) error {
+	compA, exists := refMap[dependency.Ref]
+	if !exists {
+		return fmt.Errorf("missing reference in cdx.components: %q",
+			dependency.Ref)
+	}
+
+	if dependency.Dependencies == nil {
+		return nil // No dependencies to map
+	}
+
+	for _, depRef := range *dependency.Dependencies {
+		compB, exists := refMap[depRef]
+		if !exists {
+			return fmt.Errorf("missing dependency reference in cdx.components: %q",
+				depRef)
+		}
+
+		spdxDoc.Relationships = append(spdxDoc.Relationships, &v2_3.Relationship{
+			RefA:         toSPDXDocElementID(compA.BOMRef),
+			RefB:         toSPDXDocElementID(compB.BOMRef),
+			Relationship: "DEPENDS_ON",
+		})
 	}
 
 	return nil
