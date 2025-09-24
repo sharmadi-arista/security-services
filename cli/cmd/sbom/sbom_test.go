@@ -6,6 +6,8 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/spdx/tools-golang/spdx"
+	"github.com/spdx/tools-golang/spdx/v2/v2_3"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAddCycloneDXComponents(t *testing.T) {
@@ -248,4 +250,85 @@ func TestAddCycloneDXComponents(t *testing.T) {
 			t.Fatalf("Expected relation.refB to be %q, got %q", toSPDXElementID(refB), relation.RefB)
 		}
 	})
+}
+
+func TestAddCycloneDXDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		dependency   cdx.Dependency
+		componentMap map[string]cdx.Component
+		expectedErr  string
+		expectedRels []*v2_3.Relationship
+	}{
+		{
+			name: "success with one dependency",
+			dependency: cdx.Dependency{
+				Ref:          "componentA",
+				Dependencies: &[]string{"componentB"},
+			},
+			componentMap: map[string]cdx.Component{
+				"componentA": {BOMRef: "componentA"},
+				"componentB": {BOMRef: "componentB"},
+			},
+			expectedErr: "",
+			expectedRels: []*v2_3.Relationship{
+				{
+					RefA:         toSPDXDocElementID("componentA"),
+					RefB:         toSPDXDocElementID("componentB"),
+					Relationship: "DEPENDS_ON",
+				},
+			},
+		},
+		{
+			name: "missing source component",
+			dependency: cdx.Dependency{
+				Ref:          "missingComponent",
+				Dependencies: &[]string{"componentB"},
+			},
+			componentMap: map[string]cdx.Component{
+				"componentB": {BOMRef: "componentB"},
+			},
+			expectedErr:  `missing reference in cdx.components: "missingComponent"`,
+			expectedRels: nil,
+		},
+		{
+			name: "missing dependency component",
+			dependency: cdx.Dependency{
+				Ref:          "componentA",
+				Dependencies: &[]string{"missingDep"},
+			},
+			componentMap: map[string]cdx.Component{
+				"componentA": {BOMRef: "componentA"},
+			},
+			expectedErr:  `missing dependency reference in cdx.components: "missingDep"`,
+			expectedRels: nil,
+		},
+		{
+			name: "no dependencies",
+			dependency: cdx.Dependency{
+				Ref:          "componentA",
+				Dependencies: nil,
+			},
+			componentMap: map[string]cdx.Component{
+				"componentA": {BOMRef: "componentA"},
+			},
+			expectedErr:  "",
+			expectedRels: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &v2_3.Document{}
+
+			err := AddCycloneDXDependencies(tc.dependency, tc.componentMap, doc)
+
+			if tc.expectedErr != "" {
+				assert.EqualError(t, err, tc.expectedErr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedRels, doc.Relationships)
+			}
+		})
+	}
 }
